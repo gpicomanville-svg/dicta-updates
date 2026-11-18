@@ -1,0 +1,42 @@
+# Builds whisper.cpp with the Vulkan backend for Windows x64 (AMD, NVIDIA and Intel GPUs).
+# Dicta bundles the resulting whisper-server.exe so PCs without NVIDIA still transcribe on the GPU.
+name: whisper-vulkan
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: whisper.cpp tag
+        default: v1.9.5
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ggml-org/whisper.cpp
+          ref: ${{ inputs.ref }}
+      - name: Install the Vulkan SDK
+        shell: pwsh
+        run: |
+          curl.exe -sSL -o "$env:RUNNER_TEMP\vulkan-sdk.exe" "https://sdk.lunarg.com/sdk/download/latest/windows/vulkan_sdk.exe"
+          & "$env:RUNNER_TEMP\vulkan-sdk.exe" --accept-licenses --default-answer --confirm-command install | Out-Null
+          $sdk = (Get-ChildItem C:\VulkanSDK -Directory | Sort-Object Name -Descending | Select-Object -First 1).FullName
+          "VULKAN_SDK=$sdk" | Add-Content $env:GITHUB_ENV
+          "$sdk\Bin" | Add-Content $env:GITHUB_PATH
+          Write-Host "Vulkan SDK in $sdk"
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake -B build -DGGML_VULKAN=ON -DWHISPER_BUILD_EXAMPLES=ON -DWHISPER_BUILD_TESTS=OFF -DBUILD_SHARED_LIBS=ON
+          cmake --build build --config Release -j 4
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory out | Out-Null
+          Copy-Item build\bin\Release\* out\
+          Copy-Item LICENSE out\LICENSE-whisper.cpp.txt
+          Get-ChildItem out | Format-Table Name, Length
+      - uses: actions/upload-artifact@v4
+        with:
+          name: whisper-vulkan-win-x64
+          path: out
